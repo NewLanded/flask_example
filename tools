@@ -1,0 +1,7 @@
+错误日志工具
+当足够多的用户触发了错误时，发送关于出错信息的邮件，即使仅包含严重错误的邮 件也会是一场空难。更不用提从来不会去看的日志文件了。
+因此，推荐使用 Sentry 来处理应用错误。它可 以在一个开源项目 on GitHub 中获得， 也可以在 hosted version 中免费试用。
+Sentry 统计重复错误，捕获堆栈数据和本地变量用于排错，并在发生新的或者指定 频度的错误时发送电子邮件
+https://dormousehole.readthedocs.io/en/latest/errorhandling.html
+
+

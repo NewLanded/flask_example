@@ -1,0 +1,153 @@
+1. 视图
+视图是一个应用对请求进行响应的函数。 Flask 通过模型把进来的请求 URL 匹配到 对应的处理视图。视图返回数据， Flask 把数据变成出去的响应。
+Flask 也可以反 过来，根据视图的名称和参数生成 URL
+
+2. 蓝图
+Blueprint 是一种组织一组相关视图及其他代码的方式。与把视图及其他 代码直接注册到应用的方式不同，蓝图方式是把它们注册到蓝图，然后在工厂函数中 把蓝图注册到应用
+
+3. 端点和 URL
+url_for() 函数根据视图名称和发生成 URL 。视图相关联的名称亦称为 端点 ，缺省情况下，端点名称与视图函数名称相同。
+例如，前文被加入应用工厂的 hello() 视图端点为 'hello' ，可以使用 url_for('hello') 来连接。如果视图有参数，那么可使用 url_for('hello', who='World') 连接。
+当使用蓝图的时候，蓝图的名称会添加到函数名称的前面。上面的 login 函数 的端点为 'auth.login' ，因为它已被加入 'auth' 蓝图中
+
+4. JSON 格式的 API
+JSON 格式的响应是常见的，用 Flask 写这样的 API 是很容易上手的。如果从视图 返回一个 dict ，那么它会被转换为一个 JSON 响应。
+如果 dict 还不能满足需求，还需要创建其他类型的 JSON 格式响应，可以使用 jsonify() 函数。该函数会序列化任何支持的 JSON 数据类型。 也可以研究研究 Flask 社区扩展，以支持更复杂的应用。
+@app.route("/users")
+def users_api():
+    users = get_all_users()
+    return jsonify([user.to_json() for user in users])
+
+5. 出错处理器(errorhandler)
+一个出错处理器是一个返回响应的普通视图函数。但是不同之在于它不是用于路由的 ，而是用于一个异常或者当尝试处理请求时抛出 HTTP 状态码
+在处理请求时，当 Flask 捕捉到一个异常时，它首先根据代码检索。如果该代码没 有注册处理器，它会根据类的继承来查找，确定最合适的注册处理器。
+如果找不到已 注册的处理器，那么 HTTPException 子类会显示 一个关于代码的通用消息。没有代码的异常会被转化为一个通用的 500 内部服务器 错误。
+
+当一个蓝图在处理抛出异常的请求时，在蓝图中注册的出错处理器优先于在应用中全 局注册的出错处理器。
+但是，蓝图无法处理 404 路由错误，因为 404 发生的路由级 别还不能检测到蓝图
+
+可以为非常通用的基类注册异常处理器，例如 HTTPException 基类或者甚至 Exception 基类。但是，请注意，这样会捕捉到超出你预期的异常
+当一个异常发生时，如果没有对应的异常处理器，那么就会返回一个 500 内部服务错误。关于此行为的更多内容参见 flask.Flask.handle_exception()
+如果针为 InternalServerError 注册了异常处理器，那么出现内部服务错误时就 会调用这个处理器。
+自 Flask 1.1.0 开始，总是会传递一个 InternalServerError 实例给这个异常处理器，而不是以前的未处理异常。
+原始 的异常可以通过 e.original_error 访问。在 Werkzeug 1.0.0 以前，这个属性 只有未处理异常有。建议使用 getattr 访问这个属性，以保证兼容性
+
+@app.errorhandler(InternalServerError)
+def handle_500(e):
+    original = getattr(e, "original_exception", None)
+
+    if original is None:
+        # direct 500 error, such as abort(500)
+        return render_template("500.html"), 500
+
+    # wrapped unhandled error
+    return render_template("500_unhandled.html", e=original), 500
+
+6. 日志
+Flask 使用标准 Python logging 。所有与 Flask 相关的消息都用 app.logger 来记录，其名称与 app.name 相同。这个日志记录器也可用于你自己的 的日志记录。
+@app.route('/login', methods=['POST'])
+def login():
+    user = get_user(request.form['username'])
+
+    if user.check_password(request.form['password']):
+        login_user(user)
+        app.logger.info('%s logged in successfully', user.username)
+        return redirect(url_for('index'))
+    else:
+        app.logger.info('%s failed to log in', user.username)
+        abort(401)
+
+如果没有自己配置日志， Flask 会自动添加一个 StreamHandler 到 app.logger 。
+在请求过程中，它会写到由 WSGI 服务器指定的，保存在 environ['wsgi.errors'] 变量中的日志流（通常是 sys.stderr ） 中。在请求之外，则会记录到 sys.stderr
+
+当想要为项目配置日志时，应当在程序启动时尽早进行配置。 如果完了，那么 app.logger 就会成为缺省记录器。 如果有可能的话，应当在创建应用对象之前配置日志
+这个例子使用 dictConfig() 来创建一个类似于 Flask 缺 省配置的日志记录配置:
+from logging.config import dictConfig
+dictConfig({
+    'version': 1,
+    'formatters': {'default': {
+        'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
+    }},
+    'handlers': {'wsgi': {
+        'class': 'logging.StreamHandler',
+        'stream': 'ext://flask.logging.wsgi_errors_stream',
+        'formatter': 'default'
+    }},
+    'root': {
+        'level': 'INFO',
+        'handlers': ['wsgi']
+    }
+})
+app = Flask(__name__)
+
+如果在操作 app.logger 之后配置日志，并且需要 移除缺省的日志记录器，可以导入并移除它:
+from flask.logging import default_handler
+app.logger.removeHandler(default_handler)
+
+
+7. 环境和调试特征
+ENV 和 DEBUG 配置值是特殊的，因为它们如果在应用设置完成之后改变，那么可以会有不同的行为表现。为了可靠的设置环境和调试， Flask 使用环境变量
+
+环境用于为 Flask 、扩展和其他程序（如 Sentry ）指明 Flask 运行的情境是什么。 环境由 FLASK_ENV 环境变量控制，缺省值为 production 。
+把 FLASK_ENV 设置为 development 可以打开调试模式。 在调试模式下， flask run 会缺省使用交互调试器和重载器
+$ export FLASK_ENV=development
+$ flask run
+
+如果需要脱离 环境，单独控制调试模式，请使用 FLASK_DEBUG 标示
+
+
+8. 实例文件夹
+Flask 0.8 引入了一个新的属性： Flask.instance_path 。它指向一个新 名词：“实例文件夹”。
+实例文件夹应当处于版本控制中并进行特殊部署。这个文件 夹特别适合存放需要在应用运行中改变的东西或者配置文件
+
+通过 Flask.instance_path 可以找到实例文件夹的路径。Flask 还提供一 个打开实例文件夹中的文件的快捷方法： Flask.open_instance_resource()
+举例说明:
+filename = os.path.join(app.instance_path, 'application.cfg')
+with open(filename) as f:
+    config = f.read()
+
+# or via open_instance_resource:
+with app.open_instance_resource('application.cfg') as f:
+    config = f.read()
+
+
+9. 应用情境
+应用情境在请求， CLI 命令或其他活动期间跟踪应用级数据。不是将应用程序传递 给每个函数，而是代之以访问 current_app 和 g 代理
+
+current_app 代理，该代理指向处理当前活动的应用
+
+如果您尝试在应用情境之外访问 current_app ，或其他任何使用它的东西， 则会看到以下错误消息：RuntimeError: Working outside of application context.
+这通常意味着您试图使用功能需要以某种方式与当前的应用程序对象进行交互。要解决这个问题，请使用 app.app_context（）设置应用情境。
+
+应用情境是在请求或 CLI 命令期间存储公共数据的好地方。Flask 为此提供了 g 对象 。它是一个简单的命名空间对象，与应用情境具有相同的生命 周期
+
+g 的常见用法是在请求期间管理资源。
+    1. get_X() 创建资源 X （如果它不存在），将其缓存为 g.X 。
+    2. teardown_X() 关闭或以其他方式解除分配资源（如果存在）。它被注册为 teardown_appcontext() 处理器
+
+例如，您可以使用以下方案管理数据库连接:
+
+from flask import g
+
+def get_db():
+    if 'db' not in g:
+        g.db = connect_to_database()
+
+    return g.db
+
+@app.teardown_appcontext
+def teardown_db():
+    db = g.pop('db', None)
+
+    if db is not None:
+        db.close()
+
+
+10. 回调和错误
+    1. 在每次请求之前， before_request() 函数都会被调用。如果其 中一个函数返回了一个值，则其他函数将被跳过。返回值被视为响应，并且视图 函数不会被调用。
+    2. 如果 before_request() 函数没有返回响应，则调用匹配路由的 视图函数并返回响应。
+    3. 视图的返回值被转换为实际的响应对象并传递给 after_request() 函数。每个函数都返回一个修改过的或新的响应对象。
+    4. 返回响应后，将弹出情境，该情境调用 teardown_request() 和 teardown_appcontext() 函数。即使在上面任何一处引发了未处 理的异常，也会调用这些函数。
+
+    如果在拆卸函数之前引发了异常， Flask 会尝试将它与 errorhandler() 函数进行匹配，以处理异常并返回响应。
+    如果找不到 错误处理器，或者处理器本身引发异常， Flask 将返回一个通用的 500 Internal Server Error 响应。拆卸函数仍然被调用，并传递异常对象。
